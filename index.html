@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FLAPPY DASH</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;800&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Nunito', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  .wrapper { position: relative; }
+  canvas { display: block; cursor: pointer; border-radius: 12px; }
+
+  /* Skin selector */
+  .skin-bar {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .skin-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.1);
+    transition: all 0.2s;
+  }
+  .skin-btn.active { border-color: #fff; transform: scale(1.2); }
+  .skin-btn:hover { transform: scale(1.15); }
+
+  .hint {
+    text-align: center;
+    color: #444;
+    font-size: 11px;
+    letter-spacing: 2px;
+    margin-top: 6px;
+    font-family: 'Nunito', sans-serif;
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <canvas id="c" width="380" height="600"></canvas>
+  <div class="skin-bar">
+    <div class="skin-btn active" id="s0" onclick="setSkin(0)" title="Bird">🐦</div>
+    <div class="skin-btn" id="s1" onclick="setSkin(1)" title="Cat">🐱</div>
+    <div class="skin-btn" id="s2" onclick="setSkin(2)" title="Rocket">🚀</div>
+    <div class="skin-btn" id="s3" onclick="setSkin(3)" title="Ghost">👻</div>
+    <div class="skin-btn" id="s4" onclick="setSkin(4)" title="Dragon">🐲</div>
+  </div>
+  <div class="hint">TAP / SPACE TO FLY</div>
+</div>
+
+<script>
+// ============================================================
+// AUDIO ENGINE (Web Audio API - works offline!)
+// ============================================================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let musicNodes = [];
+let musicOn = true;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new AudioCtx();
+}
+
+function playTone(freq, type, dur, vol=0.3, delay=0) {
+  if (!audioCtx || !musicOn) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime + delay);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + dur);
+  osc.start(audioCtx.currentTime + delay);
+  osc.stop(audioCtx.currentTime + delay + dur);
+}
+
+function sfxFlap() { playTone(520, 'sine', 0.08, 0.2); playTone(680, 'sine', 0.06, 0.15, 0.05); }
+function sfxScore() {
+  [523,659,784,1047].forEach((f,i) => playTone(f,'sine',0.12,0.25,i*0.07));
+}
+function sfxDie() {
+  playTone(300,'sawtooth',0.1,0.3);
+  playTone(200,'sawtooth',0.15,0.3,0.1);
+  playTone(100,'sawtooth',0.2,0.3,0.2);
+}
+function sfxPowerup() {
+  [400,600,800,1000,1200].forEach((f,i) => playTone(f,'sine',0.1,0.2,i*0.05));
+}
+function sfxShield() { playTone(300,'square',0.05,0.1); }
+
+// Background music loop
+let musicTimer = null;
+const MELODY = [
+  [523,0.15],[587,0.15],[659,0.15],[698,0.15],
+  [784,0.3],[698,0.15],[659,0.15],[587,0.3],
+  [523,0.15],[494,0.15],[440,0.15],[494,0.15],[523,0.3]
+];
+let melodyIdx = 0;
+let melodyTime = 0;
+
+function playMusicTick() {
+  if (!audioCtx || !musicOn || state !== 'play') return;
+  const now = audioCtx.currentTime;
+  if (now >= melodyTime) {
+    const [freq, dur] = MELODY[melodyIdx % MELODY.length];
+    playTone(freq, 'sine', dur * 0.8, 0.08);
+    melodyTime = now + dur;
+    melodyIdx++;
+  }
+}
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const W = c.width, H = c.height;
+
+let best = parseInt(localStorage.getItem('fdBest')||'0');
+let state = 'idle'; // idle, play, dead
+let score = 0, frames = 0, hiCombo = 0, combo = 0;
+
+// ============================================================
+// SKINS
+// ============================================================
+const SKINS = [
+  { emoji: '🐦', color: '#ffdd57', trail: '#ffaa00', name: 'BIRDY' },
+  { emoji: '🐱', color: '#ff9999', trail: '#ff6666', name: 'KITTY' },
+  { emoji: '🚀', color: '#66ddff', trail: '#0088ff', name: 'ROCKET' },
+  { emoji: '👻', color: '#e8e8ff', trail: '#aaaaff', name: 'GHOST' },
+  { emoji: '🐲', color: '#66ff88', trail: '#00cc44', name: 'DRAGON' },
+];
+let currentSkin = 0;
+
+function setSkin(i) {
+  currentSkin = i;
+  document.querySelectorAll('.skin-btn').forEach((b,j) => b.classList.toggle('active', j===i));
+  localStorage.setItem('fdSkin', i);
+}
+currentSkin = parseInt(localStorage.getItem('fdSkin')||'0');
+document.getElementById('s'+currentSkin).classList.add('active');
+
+// ============================================================
+// BIRD
+// ============================================================
+const bird = {
+  x: 90, y: H/2,
+  r: 22,
+  vy: 0, rot: 0,
+  trail: [],
+  shield: false, shieldTimer: 0,
+  slowmo: false, slowTimer: 0,
+  invincible: false,
+
+  flap() {
+    this.vy = this.slowmo ? -3.5 : -5.5;
+    sfxFlap();
+    this.trail.unshift({x:this.x, y:this.y, life:1});
+  },
+
+  update(dt) {
+    const gravity = this.slowmo ? 0.18 : 0.32;
+    this.vy += gravity;
+    if (this.vy > 12) this.vy = 12;
+    this.y += this.vy;
+    this.rot = Math.min(Math.max(this.vy*3.5, -30), 85);
+
+    // Trail
+    for (let i = 0; i < this.trail.length; i++) this.trail[i].life -= 0.07;
+    this.trail = this.trail.filter(t => t.life > 0);
+    if (frames % 2 === 0) this.trail.unshift({x:this.x-5, y:this.y, life:0.8});
+    if (this.trail.length > 15) this.trail.pop();
+
+    // Shield
+    if (this.shieldTimer > 0) { this.shieldTimer--; this.shield = this.shieldTimer > 0; }
+
+    // Slowmo
+    if (this.slowTimer > 0) { this.slowTimer--; this.slowmo = this.slowTimer > 0; }
+  },
+
+  draw() {
+    const skin = SKINS[currentSkin];
+
+    // Trail
+    this.trail.forEach(t => {
+      ctx.globalAlpha = t.life * 0.4;
+      ctx.fillStyle = skin.trail;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, this.r * t.life * 0.7, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Shield ring
+    if (this.shield) {
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 8 + Math.sin(frames*0.2)*3, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Slowmo ring
+    if (this.slowmo) {
+      ctx.strokeStyle = '#ff88ff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5,5]);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 12, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Draw emoji bird
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot * Math.PI/180);
+
+    // Glow circle behind emoji
+    ctx.shadowColor = skin.color;
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = skin.color + '44';
+    ctx.beginPath();
+    ctx.arc(0, 0, this.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Emoji
+    ctx.font = `${this.r * 1.5}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(skin.emoji, 0, 0);
+
+    ctx.restore();
+  }
+};
+
+// ============================================================
+// PIPES
+// ============================================================
+let pipes = [];
+const GAP = 165;
+const PW = 56;
+let pipeTimer = 0;
+let pipeInterval = 110;
+
+const PIPE_COLORS = ['#2ecc71','#e74c3c','#3498db','#f39c12','#9b59b6'];
+let pipeColorIdx = 0;
+
+function spawnPipe() {
+  const minTop = 90;
+  const maxTop = H - GAP - 110;
+  const topH = Math.floor(Math.random()*(maxTop-minTop)+minTop);
+  pipes.push({
+    x: W + 20,
+    topH, bottomY: topH + GAP,
+    passed: false,
+    color: PIPE_COLORS[pipeColorIdx % PIPE_COLORS.length],
+    hasCoin: Math.random() < 0.4,
+    coinY: topH + GAP/2,
+    coinCollected: false,
+    hasPowerup: Math.random() < 0.15,
+    powerupY: topH + GAP/2,
+    powerupType: Math.random() < 0.5 ? 'shield' : 'slowmo',
+    powerupCollected: false,
+  });
+  pipeColorIdx++;
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+let particles = [];
+function burst(x, y, color, count=15) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random()*Math.PI*2;
+    const sp = Math.random()*6+2;
+    particles.push({
+      x, y,
+      vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: 1, color,
+      size: Math.random()*5+2,
+      emoji: Math.random() < 0.3 ? ['⭐','✨','💫'][Math.floor(Math.random()*3)] : null
+    });
+  }
+}
+
+// ============================================================
+// BACKGROUND
+// ============================================================
+let clouds = Array.from({length:6}, () => ({
+  x: Math.random()*W, y: Math.random()*H*0.5,
+  w: Math.random()*80+60, h: Math.random()*30+20,
+  speed: Math.random()*0.5+0.3,
+  opacity: Math.random()*0.3+0.1
+}));
+
+let bgStars = Array.from({length:60}, () => ({
+  x: Math.random()*W, y: Math.random()*H,
+  r: Math.random()*2+0.5,
+  twinkle: Math.random()*Math.PI*2
+}));
+
+// ============================================================
+// GAME SPEED
+// ============================================================
+let gameSpeed = 2.5;
+
+// ============================================================
+// UPDATE
+// ============================================================
+function update() {
+  if (state !== 'play') return;
+  frames++;
+
+  // Music tick
+  playMusicTick();
+
+  // Speed increase
+  gameSpeed = 2.5 + Math.floor(score/8)*0.2;
+  pipeInterval = Math.max(75, 110 - Math.floor(score/5)*3);
+
+  bird.update();
+
+  // Pipes
+  pipeTimer++;
+  if (pipeTimer >= pipeInterval) { spawnPipe(); pipeTimer = 0; }
+
+  const spd = bird.slowmo ? gameSpeed * 0.4 : gameSpeed;
+
+  pipes.forEach(p => {
+    p.x -= spd;
+
+    // Score
+    if (!p.passed && p.x + PW < bird.x) {
+      p.passed = true;
+      score++;
+      combo++;
+      if (combo > hiCombo) hiCombo = combo;
+      sfxScore();
+      burst(bird.x, bird.y, SKINS[currentSkin].color, 8);
+      if (score > best) { best = score; localStorage.setItem('fdBest', best); }
+    }
+
+    // Coin collect
+    if (p.hasCoin && !p.coinCollected) {
+      const dx = bird.x - p.x - PW/2;
+      const dy = bird.y - p.coinY;
+      if (Math.sqrt(dx*dx+dy*dy) < bird.r + 14) {
+        p.coinCollected = true;
+        score++;
+        sfxScore();
+        burst(p.x+PW/2, p.coinY, '#ffd700', 10);
+      }
+    }
+
+    // Powerup collect
+    if (p.hasPowerup && !p.powerupCollected) {
+      const dx = bird.x - p.x - PW/2;
+      const dy = bird.y - p.powerupY;
+      if (Math.sqrt(dx*dx+dy*dy) < bird.r + 16) {
+        p.powerupCollected = true;
+        sfxPowerup();
+        if (p.powerupType === 'shield') {
+          bird.shield = true; bird.shieldTimer = 180;
+        } else {
+          bird.slowmo = true; bird.slowTimer = 240;
+        }
+        burst(p.x+PW/2, p.powerupY, p.powerupType==='shield'?'#00ffff':'#ff88ff', 15);
+      }
+    }
+  });
+
+  pipes = pipes.filter(p => p.x > -PW-20);
+
+  // Clouds
+  clouds.forEach(cl => { cl.x -= spd*0.3; if (cl.x+cl.w < 0) { cl.x = W+cl.w; cl.y = Math.random()*H*0.5; }});
+
+  // Stars
+  bgStars.forEach(s => s.twinkle += 0.04);
+
+  // Particles
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.12; p.vx *= 0.98;
+    p.life -= 0.03;
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  // Collision — floor/ceiling
+  if (bird.y + bird.r > H - 40 || bird.y - bird.r < 0) { die(); return; }
+
+  // Pipe collision
+  pipes.forEach(p => {
+    if (bird.x+bird.r-6 > p.x && bird.x-bird.r+6 < p.x+PW) {
+      if (bird.y-bird.r+6 < p.topH || bird.y+bird.r-6 > p.bottomY) {
+        if (bird.shield) {
+          bird.shield = false; bird.shieldTimer = 0;
+          sfxShield();
+          burst(bird.x, bird.y, '#00ffff', 12);
+        } else {
+          die();
+        }
+      }
+    }
+  });
+}
+
+function die() {
+  if (state !== 'play') return;
+  state = 'dead';
+  combo = 0;
+  sfxDie();
+  burst(bird.x, bird.y, SKINS[currentSkin].color, 25);
+}
+
+// ============================================================
+// DRAW
+// ============================================================
+function drawBG() {
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  if (bird.slowmo) {
+    sky.addColorStop(0, '#1a0033');
+    sky.addColorStop(1, '#330066');
+  } else {
+    sky.addColorStop(0, '#1a1a3e');
+    sky.addColorStop(0.5, '#16213e');
+    sky.addColorStop(1, '#0f3460');
+  }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  bgStars.forEach(s => {
+    ctx.globalAlpha = 0.3+Math.sin(s.twinkle)*0.3;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // Clouds
+  clouds.forEach(cl => {
+    ctx.globalAlpha = cl.opacity;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(cl.x, cl.y, cl.w, cl.h, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cl.x+cl.w*0.3, cl.y-cl.h*0.3, cl.w*0.6, cl.h*0.7, 0, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // Ground
+  const grd = ctx.createLinearGradient(0, H-40, 0, H);
+  grd.addColorStop(0, '#2d5a27');
+  grd.addColorStop(1, '#1a3a16');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, H-40, W, 40);
+
+  // Ground grass bumps
+  ctx.fillStyle = '#3d7a35';
+  for (let x = 0; x < W; x += 20) {
+    ctx.beginPath();
+    ctx.arc(x + ((frames*gameSpeed)%20 - 10), H-40, 8, Math.PI, 0);
+    ctx.fill();
+  }
+}
+
+function drawPipes() {
+  pipes.forEach(p => {
+    // Top pipe
+    const tg = ctx.createLinearGradient(p.x, 0, p.x+PW, 0);
+    tg.addColorStop(0, p.color+'aa');
+    tg.addColorStop(0.4, p.color);
+    tg.addColorStop(1, p.color+'66');
+    ctx.fillStyle = tg;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 10;
+
+    // Pipe body top
+    ctx.beginPath();
+    ctx.roundRect(p.x+4, 0, PW-8, p.topH-16, [0,0,4,4]);
+    ctx.fill();
+    // Cap top
+    ctx.beginPath();
+    ctx.roundRect(p.x, p.topH-20, PW, 20, [4,4,8,8]);
+    ctx.fill();
+
+    // Pipe body bottom
+    ctx.beginPath();
+    ctx.roundRect(p.x+4, p.bottomY+16, PW-8, H-p.bottomY-16, [4,4,0,0]);
+    ctx.fill();
+    // Cap bottom
+    ctx.beginPath();
+    ctx.roundRect(p.x, p.bottomY, PW, 20, [8,8,4,4]);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Shine on pipe
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(p.x+6, 0, 8, p.topH-16);
+    ctx.fillRect(p.x+6, p.bottomY+16, 8, H-p.bottomY-16);
+
+    // Coin in gap
+    if (p.hasCoin && !p.coinCollected) {
+      const pulse = 1 + Math.sin(frames*0.1)*0.1;
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 15;
+      ctx.font = `${24*pulse}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🪙', p.x+PW/2, p.coinY);
+      ctx.shadowBlur = 0;
+    }
+
+    // Powerup in gap
+    if (p.hasPowerup && !p.powerupCollected) {
+      const pulse = 1 + Math.sin(frames*0.15)*0.15;
+      ctx.font = `${26*pulse}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.powerupType === 'shield' ? '🛡️' : '⏱️', p.x+PW/2, p.powerupY);
+    }
+  });
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    if (p.emoji) {
+      ctx.font = `${p.size*3*p.life}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.emoji, p.x, p.y);
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size*p.life, 0, Math.PI*2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  });
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawHUD() {
+  if (state !== 'play') return;
+
+  // Score
+  ctx.font = 'bold 48px Fredoka One';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 8;
+  ctx.fillText(score, W/2, 65);
+  ctx.shadowBlur = 0;
+
+  // Combo
+  if (combo > 1) {
+    ctx.font = 'bold 20px Fredoka One';
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 10;
+    ctx.fillText(`${combo}x COMBO! 🔥`, W/2, 95);
+    ctx.shadowBlur = 0;
+  }
+
+  // Powerup timers
+  let py = 130;
+  if (bird.shield) {
+    ctx.font = '16px Nunito';
+    ctx.fillStyle = '#00ffff';
+    ctx.fillText(`🛡️ ${Math.ceil(bird.shieldTimer/60)}s`, 10, py);
+    py += 25;
+  }
+  if (bird.slowmo) {
+    ctx.font = '16px Nunito';
+    ctx.fillStyle = '#ff88ff';
+    ctx.fillText(`⏱️ ${Math.ceil(bird.slowTimer/60)}s`, 10, py);
+  }
+
+  // Music toggle
+  ctx.font = '20px serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(musicOn ? '🔊' : '🔇', W-10, 30);
+
+  ctx.textAlign = 'left';
+}
+
+function drawOverlay() {
+  if (state === 'idle') {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 52px Fredoka One';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = SKINS[currentSkin].color;
+    ctx.shadowBlur = 25;
+    ctx.fillText('FLAPPY DASH', W/2, H/2-60);
+    ctx.shadowBlur = 0;
+
+    ctx.font = `40px serif`;
+    ctx.fillText(SKINS[currentSkin].emoji, W/2, H/2);
+
+    ctx.font = 'bold 16px Nunito';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(`BEST: ${best}`, W/2, H/2+45);
+
+    ctx.font = '14px Nunito';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('TAP OR PRESS SPACE TO START', W/2, H/2+80);
+
+    ctx.font = '12px Nunito';
+    ctx.fillStyle = '#555';
+    ctx.fillText('🛡️ = SHIELD   ⏱️ = SLOW-MO   🪙 = +1 SCORE', W/2, H/2+108);
+
+    ctx.textAlign = 'left';
+  }
+
+  if (state === 'dead') {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+
+    ctx.font = 'bold 44px Fredoka One';
+    ctx.fillStyle = '#ff6b6b';
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 20;
+    ctx.fillText('OOPS! 😵', W/2, H/2-80);
+    ctx.shadowBlur = 0;
+
+    // Score box
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(W/2-120, H/2-60, 240, 140, 16);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.font = 'bold 20px Nunito';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`SCORE: ${score} 🏆`, W/2, H/2-25);
+
+    ctx.font = '16px Nunito';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(`BEST: ${best} ⭐`, W/2, H/2+5);
+
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`BEST COMBO: ${hiCombo}x 🔥`, W/2, H/2+32);
+
+    ctx.font = '13px Nunito';
+    ctx.fillStyle = '#555';
+    ctx.fillText(`SKIN: ${SKINS[currentSkin].name} ${SKINS[currentSkin].emoji}`, W/2, H/2+58);
+
+    ctx.font = 'bold 18px Fredoka One';
+    ctx.fillStyle = '#6bcb77';
+    ctx.fillText('TAP TO PLAY AGAIN! 🎮', W/2, H/2+100);
+
+    ctx.textAlign = 'left';
+  }
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+function loop() {
+  update();
+  drawBG();
+  drawPipes();
+  drawParticles();
+  bird.draw();
+  drawHUD();
+  drawOverlay();
+  requestAnimationFrame(loop);
+}
+
+function startGame() {
+  initAudio();
+  state = 'play';
+  score = 0; frames = 0; combo = 0;
+  pipes = []; particles = [];
+  pipeTimer = 0; gameSpeed = 2.5;
+  melodyIdx = 0; melodyTime = 0;
+  bird.y = H/2; bird.vy = 0; bird.trail = [];
+  bird.shield = false; bird.shieldTimer = 0;
+  bird.slowmo = false; bird.slowTimer = 0;
+}
+
+function action() {
+  if (state === 'play') {
+    bird.flap();
+  } else {
+    startGame();
+  }
+}
+
+// Music toggle on HUD click
+c.addEventListener('click', e => {
+  const rect = c.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (W / rect.width);
+  const y = (e.clientY - rect.top) * (H / rect.height);
+  if (x > W-40 && y < 40) {
+    musicOn = !musicOn;
+    return;
+  }
+  action();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); action(); }
+  if (e.code === 'KeyM') { musicOn = !musicOn; }
+});
+
+c.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const rect = c.getBoundingClientRect();
+  const x = (e.touches[0].clientX - rect.left) * (W / rect.width);
+  const y = (e.touches[0].clientY - rect.top) * (H / rect.height);
+  if (x > W-40 && y < 40) { musicOn = !musicOn; return; }
+  action();
+}, {passive:false});
+
+loop();
+</script>
+</body>
+</html>
