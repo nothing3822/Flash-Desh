@@ -1,4 +1,4 @@
-const CACHE = 'flappy-dash-v2.3';
+const CACHE = 'flappy-dash-v2.4';
 const FILES = [
   '/Flash-Desh/',
   '/Flash-Desh/index.html',
