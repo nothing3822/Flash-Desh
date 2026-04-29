@@ -581,7 +581,7 @@ const bird={
   reset(){this.y=H/2;this.vy=0;this.rot=0;this.trail=[];this.magic=false;this.magicTimer=0;},
   flap(){iAudio();doFlap(curSkin);this.vy=LVL==='hard'?-8.5:LVL==='medium'?-7.5:-6.5;},
   update(){
-    const g=LVL==='hard'?.44:LVL==='medium'?.37:.30;
+    const g=LVL==='hard'?.40:LVL==='medium'?.30:.22;
     this.vy+=g;if(this.vy>11)this.vy=11;
     this.y+=this.vy;
     this.rot=Math.min(Math.max(this.vy*3.5,-30),85);
