@@ -273,13 +273,21 @@ function sfxShield(){tone(440,'sine',.05,.2);}
 
 let mI=0,mT=0;
 
+// UNIQUE BACKGROUND MUSIC PER SKIN
 const SKIN_MUSIC=[
+  // 0: BIRD - Happy cheerful tune (major scale, fast)
   [[659,.12],[784,.12],[880,.12],[988,.12],[1047,.2],[880,.12],[784,.12],[659,.2],[523,.12],[659,.12],[784,.2],[659,.12],[523,.12],[440,.25]],
+  // 1: CAT - Mysterious jazzy night tune (minor scale, slow)
   [[440,.25],[415,.15],[392,.2],[370,.15],[349,.3],[370,.15],[392,.2],[415,.15],[440,.3],[494,.2],[466,.15],[440,.35]],
+  // 2: ROCKET - Epic space theme (wide intervals, dramatic)
   [[131,.3],[196,.15],[262,.2],[392,.15],[523,.3],[466,.15],[415,.2],[370,.3],[311,.15],[262,.2],[196,.3],[131,.4]],
+  // 3: GHOST - Spooky Halloween tune (diminished, eerie)
   [[220,.3],[233,.2],[247,.15],[262,.25],[220,.2],[208,.15],[196,.3],[185,.2],[174,.15],[185,.2],[196,.3],[220,.4]],
+  // 4: DRAGON - Intense battle music (heavy, fast, low)
   [[98,.1],[104,.1],[110,.12],[116,.1],[98,.1],[104,.08],[110,.1],[130,.2],[116,.1],[110,.1],[104,.15],[98,.2]],
+  // 5: DUCK - Fun bouncy pond song (playful, medium tempo)
   [[784,.1],[880,.1],[988,.12],[880,.1],[784,.1],[698,.1],[784,.12],[659,.1],[698,.1],[784,.2],[659,.1],[523,.15],[659,.1],[784,.25]],
+  // 6: PLANE - Soaring adventure theme (ascending, heroic)
   [[262,.2],[294,.15],[330,.2],[349,.15],[392,.3],[440,.2],[494,.15],[523,.3],[494,.15],[440,.2],[392,.15],[349,.2],[330,.3]],
 ];
 
@@ -291,9 +299,6 @@ function mTick(){
     tone(f,'sine',d*.85,.07);
     mT=aC.currentTime+d;
   }
-}
-  if(!aC||!CFG.music||ST!=='play')return;
-  if(aC.currentTime>=mT){const[f,d]=MEL[mI++%MEL.length];tone(f,'sine',d*.8,.06);mT=aC.currentTime+d;}
 }
 
 // ===== UNIQUE THEMES =====
@@ -599,7 +604,7 @@ const bird={
   reset(){this.y=H/2;this.vy=0;this.rot=0;this.trail=[];this.magic=false;this.magicTimer=0;},
   flap(){iAudio();doFlap(curSkin);this.vy=LVL==='hard'?-8.5:LVL==='medium'?-7.5:-6.5;},
   update(){
-    const g=LVL==='hard'?.40:LVL==='medium'?.30:.22;
+    const g=LVL==='hard'?.44:LVL==='medium'?.37:.30;
     this.vy+=g;if(this.vy>11)this.vy=11;
     this.y+=this.vy;
     this.rot=Math.min(Math.max(this.vy*3.5,-30),85);
@@ -742,12 +747,11 @@ function showGO(){
   document.getElementById('goBt').textContent='Best: '+best;
   document.getElementById('goCo').textContent=hiCombo>1?'Best Combo: '+hiCombo+'x 🔥':'';
   document.getElementById('goEm').textContent=score>=best?'🏆':'😵';
-  const anyDone=Object.keys(mDone).length>0;
   document.getElementById('goMs').innerHTML=MDEF[LVL].map((m,i)=>{
     const done=!!mDone[m.id];const val=Math.min(mProg[m.type]||0,m.goal);
     const active=i===activeMission&&!done;
-    return`<div class="mi" style="${active?'border-left:3px solid #ffd93d;padding-left:6px':''}"><span>${done?'✅':active?'▶️':'⬜'}</span><span class="mitxt">${m.txt}</span><span class="mip">${done?'Done!':val+'/'+m.goal}</span></div>`;
-  }).join('')+(!anyDone?'<div style="text-align:center;color:#ff6b6b;font-size:12px;padding:8px;margin-top:4px;">😔 Koi mission complete nahi hua!</div>':'');
+    return`<div class="mi" style="${active?'border-left:3px solid #ffd93d;padding-left:6px':''}"><span>${done?'✅':active?'▶️':'⬜'}</span><span class="mitxt">${m.txt}</span><span class="mip">${val}/${m.goal}</span></div>`;
+  }).join('');
   document.getElementById('gameOverOv').classList.add('show');
 }
 
@@ -856,7 +860,7 @@ function syncLvl(){
 
 function setSkin(i){
   curSkin=i;localStorage.setItem('fd_skin',i);
-   mI=0;mT=0;
+  mI=0;mT=0; // Reset music to new skin's tune
   document.querySelectorAll('.sc').forEach((c,j)=>c.classList.toggle('sel',j===i));
 }
 
