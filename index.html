@@ -587,7 +587,7 @@ function closeMissionPopup(isComplete){
   document.getElementById('missionCompleteOv').classList.remove('show');
   ST='play';
   if(isComplete){
-    // Start next mission
+    mProg={pipes:0,coins:0,magic:0,score:0,time:0}; // Reset progress for next mission!
     setTimeout(()=>startMission(missionNum+1),500);
   }
 }
@@ -851,10 +851,8 @@ document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();
 function startGame(){
   iAudio();ST='play';
   score=0;frames=0;combo=0;hiCombo=0;gameTime=0;pT=0;pCI=0;GS=3;mI=0;mT=0;
-  pipes=[];fCoins=[];parts=[];missionNum=0;missionCompleted=0;currentMission=null;missionQueue=[];mI=0;mT=0;
-mProg={pipes:0,coins:0,magic:0,score:0,time:0};
-setTimeout(()=>startMission(1),500);
-  mProg={pipes:0,coins:0,magic:0,score:0,time:0};mDone={};
+  pipes=[];fCoins=[];parts=[];missionNum=0;missionCompleted=0;currentMission=null;missionQueue=[];
+  mProg={pipes:0,coins:0,magic:0,score:0,time:0};
   bird.reset();
   document.getElementById('shud').textContent='0';
   document.getElementById('mbar').classList.remove('show');
@@ -864,6 +862,7 @@ setTimeout(()=>startMission(1),500);
   document.getElementById('missionCompleteOv').classList.remove('show');
   document.querySelectorAll('.mw').forEach(m=>m.style.display='none');
   document.getElementById('gw').classList.add('show');
+  setTimeout(()=>startMission(1),800);
 }
 
 function restartGame(){document.getElementById('gameOverOv').classList.remove('show');startGame();}
