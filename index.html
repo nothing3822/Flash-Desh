@@ -13,9 +13,9 @@ canvas{display:block;border-radius:16px;touch-action:none;}
 
 /* SPLASH */
 #splash{position:fixed;inset:0;background:#0a0a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999;overflow:hidden;}
-.splash-photo{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;opacity:0.82;}
+.splash-photo{width:100%;height:100%;object-fit:contain;object-position:center;position:absolute;inset:0;opacity:0.85;background:#0a0a1a;}
 .splash-overlay{position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.2) 30%,rgba(0,0,0,0.75) 100%);}
-.splash-right{position:absolute;right:24px;bottom:55px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+.splash-right{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;text-align:center;}
 .splash-photo{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;opacity:0.85;}
 .splash-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,0.1),rgba(0,0,0,0.5));}
 .splash-content{position:relative;z-index:2;display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;width:100%;height:100%;padding:30px 28px 50px;}
@@ -537,69 +537,90 @@ const SKINS=[
   {e:'👻',n:'GHOST'},{e:'🐲',n:'DRAGON'},{e:'🦆',n:'DUCKY'},{e:'✈️',n:'AIRBUS'}
 ];
 
-// ===== MISSIONS =====
-const MDEF={
-  easy:[
-    {id:'p10',txt:'Cross 10 pipes',goal:10,type:'pipes',icon:'🚀'},
-    {id:'c8',txt:'Collect 8 coins',goal:8,type:'coins',icon:'🪙'},
-    {id:'m1',txt:'Grab 1 magic coin',goal:1,type:'magic',icon:'⭐'},
-  ],
-  medium:[
-    {id:'p25',txt:'Cross 25 pipes',goal:25,type:'pipes',icon:'🚀'},
-    {id:'c20',txt:'Collect 20 coins',goal:20,type:'coins',icon:'🪙'},
-    {id:'s50',txt:'Reach score 50',goal:50,type:'score',icon:'🏆'},
-  ],
-  hard:[
-    {id:'p50',txt:'Cross 50 pipes',goal:50,type:'pipes',icon:'🚀'},
-    {id:'c40',txt:'Collect 40 coins',goal:40,type:'coins',icon:'🪙'},
-    {id:'t60',txt:'Survive 60 seconds',goal:60,type:'time',icon:'⏱️'},
-  ],
-};
-let mProg={},mDone={};
-let activeMission=0; // which mission index we're on
-let missionQueue=[]; // missions waiting to show
+// ===== MISSIONS - 3 tasks = 1 mission, auto generate =====
+let missionNum=0; // current mission number (1,2,3...)
+let currentMission=null;
+let mProg={pipes:0,coins:0,magic:0,score:0,time:0};
+let missionCompleted=0; // total missions completed
+let missionQueue=[];
 
-function chkM(){
-  const ms=MDEF[LVL];
-  const m=ms[activeMission]; // only check CURRENT active mission
-  if(!m||mDone[m.id])return;
-  if((mProg[m.type]||0)>=m.goal){
-    mDone[m.id]=true;
-    // DON'T auto-advance - wait for user click
-    missionQueue.push({mission:m,idx:activeMission,total:ms.length});
-    processMissionQueue();
+// Generate mission based on level and mission number
+function generateMission(num){
+  const mult=num; // each mission harder
+  const lvlBase={
+    easy:   {pipes:8,  coins:6,  magic:1},
+    medium: {pipes:15, coins:12, magic:1},
+    hard:   {pipes:25, coins:20, magic:2},
+  };
+  const base=lvlBase[LVL];
+  return {
+    num:num,
+    title:'Mission '+num,
+    tasks:[
+      {id:'pipes', txt:'Cross '+(base.pipes*mult)+' pipes', goal:base.pipes*mult, type:'pipes', icon:'🚀', done:false},
+      {id:'coins', txt:'Collect '+(base.coins*mult)+' coins', goal:base.coins*mult, type:'coins', icon:'🪙', done:false},
+      {id:'magic', txt:'Grab '+(base.magic)+' magic coin'+(base.magic>1?'s':''), goal:base.magic, type:'magic', icon:'⭐', done:false},
+    ],
+    prog:{pipes:0,coins:0,magic:0},
+  };
+}
+
+function startMission(num){
+  missionNum=num;
+  currentMission=generateMission(num);
+  // Show mission start popup
+  showMissionStart(currentMission);
+}
+
+function showMissionStart(m){
+  ST='pause';
+  document.getElementById('mcIcon').textContent='🎯';
+  document.getElementById('mcTitle').textContent='Mission '+m.num+' Started!';
+  document.getElementById('mcText').textContent=
+    m.tasks.map(t=>'• '+t.txt).join('\n');
+  document.getElementById('mcNextBtn').textContent='Lets Go! ▶';
+  document.getElementById('mcNextBtn').onclick=function(){closeMissionPopup(false);};
+  document.getElementById('missionCompleteOv').classList.add('show');
+}
+
+function closeMissionPopup(isComplete){
+  document.getElementById('missionCompleteOv').classList.remove('show');
+  ST='play';
+  if(isComplete){
+    // Start next mission
+    setTimeout(()=>startMission(missionNum+1),500);
   }
 }
 
-function processMissionQueue(){
-  if(missionQueue.length===0)return;
-  if(document.getElementById('missionCompleteOv').classList.contains('show'))return;
-  const{mission,idx,total}=missionQueue.shift();
-  showMissionComplete(mission,idx,total);
-}
-
-function showMissionComplete(mission,idx,total){
-  sfxMissionComplete();
-  ST='pause';
-  const isLast=idx>=total-1;
-  const nextM=!isLast?MDEF[LVL][idx+1]:null;
-
-  document.getElementById('mcIcon').textContent=mission.icon||'🏆';
-  document.getElementById('mcTitle').textContent='Mission Complete!';
-  document.getElementById('mcText').textContent=`✅ "${mission.txt}" done!${nextM?'\n\nNext: '+nextM.txt:''}`;
-
-  const nbtn=document.getElementById('mcNextBtn');
-  if(isLast){nbtn.textContent='🏆 All Done! Continue';}
-  else{nbtn.textContent='Next Mission ▶';}
-
-  activeMission=Math.min(idx+1,total-1);
-  document.getElementById('missionCompleteOv').classList.add('show');
+function chkM(){
+  if(!currentMission)return;
+  const m=currentMission;
+  // Update task progress
+  m.tasks.forEach(t=>{
+    if(t.done)return;
+    const val=mProg[t.type]||0;
+    if(val>=t.goal) t.done=true;
+  });
+  // Check if ALL tasks done
+  const allDone=m.tasks.every(t=>t.done);
+  if(allDone&&!m.completed){
+    m.completed=true;
+    missionCompleted++;
+    sfxMissionComplete();
+    ST='pause';
+    document.getElementById('mcIcon').textContent='🏆';
+    document.getElementById('mcTitle').textContent='Mission '+m.num+' Complete!';
+    document.getElementById('mcText').textContent=
+      '✅ All tasks done!\n\n🎯 Mission '+(m.num+1)+' loading...';
+    document.getElementById('mcNextBtn').textContent='Next Mission ▶';
+    document.getElementById('mcNextBtn').onclick=function(){closeMissionPopup(true);};
+    document.getElementById('missionCompleteOv').classList.add('show');
+  }
 }
 
 function closeMissionComplete(){
   document.getElementById('missionCompleteOv').classList.remove('show');
   ST='play';
-  setTimeout(()=>{if(missionQueue.length>0)processMissionQueue();},300);
 }
 
 // ===== CANVAS =====
@@ -680,7 +701,7 @@ function update(){
   if(ST!=='play')return;
   frames++;gameTime++;mTick();
   const base=LVL==='hard'?3.5:LVL==='medium'?3:2.5;
-  GS=base+Math.floor(score/10)*.15;
+  GS=base+Math.floor(score/20)*.08;
   const pInt=Math.max(65,105-Math.floor(score/8)*3);
   bird.update();
   pT++;if(pT>=pInt){spawnPipe();pT=0;}
@@ -696,7 +717,7 @@ function update(){
       burst(bird.x,bird.y,'#6bcb77',6);
       if(score>best){best=score;localStorage.setItem('fd_best',best);}
       document.getElementById('shud').textContent=score;
-      if(!mProg.pipes)mProg.pipes=0;mProg.pipes++;mProg.score=score;chkM();showCombo();
+     if(!mProg.pipes)mProg.pipes=0;mProg.pipes++;mProg.score=score;if(currentMission)currentMission.prog.pipes=mProg.pipes;chkM();showCombo();
     }
     if(!p.cDone){
       const cy=p.cY+Math.sin(p.cPh)*20;
@@ -762,20 +783,22 @@ function showGO(){
   document.getElementById('goBt').textContent='Best: '+best;
   document.getElementById('goCo').textContent=hiCombo>1?'Best Combo: '+hiCombo+'x 🔥':'';
   document.getElementById('goEm').textContent=score>=best?'🏆':'😵';
-  document.getElementById('goMs').innerHTML=MDEF[LVL].map((m,i)=>{
-    const done=!!mDone[m.id];
-    const val=Math.min(mProg[m.type]||0,m.goal);
-    const active=i===activeMission&&!done;
-    const allZero=Object.values(mProg).every(v=>v===0);
-    return`<div class="mi" style="${active?'border-left:3px solid #ffd93d;padding-left:6px':''}">
-      <span>${done?'✅':active?'▶️':'⬜'}</span>
-      <span class="mitxt">${m.txt}</span>
-      <span class="mip">${done?'Done!':val+'/'+m.goal}</span>
-    </div>`;
-  }).join('')+(Object.keys(mDone).length===0?'<div style="text-align:center;color:#555;font-size:12px;padding:8px;">😔 Koi mission complete nahi hua — agli baar try karo!</div>':'');
+  document.getElementById('goMs').innerHTML=
+    '<div style="text-align:center;padding:8px;">'
+    +'<div style="font-family:\'Fredoka One\',cursive;font-size:28px;color:#ffd93d;">🏆 '+missionCompleted+'</div>'
+    +'<div style="font-size:10px;color:#555;letter-spacing:3px;text-transform:uppercase;">Missions Completed</div>'
+    +(currentMission&&!currentMission.completed?
+      '<div style="font-size:12px;color:#888;margin-top:10px;text-align:left;">'
+      +'<div style="color:#aaa;margin-bottom:6px;">Mission '+missionNum+' Progress:</div>'
+      +currentMission.tasks.map(t=>
+        '<div style="padding:3px 0;">'+(t.done?'✅':'⬜')+' '+t.txt
+        +' <span style="color:#ffd93d;float:right;">'
+        +Math.min(mProg[t.type]||0,t.goal)+'/'+t.goal+'</span></div>'
+      ).join('')+'</div>':'')
+    +(missionCompleted===0?'<div style="color:#ff6b6b;font-size:11px;margin-top:8px;">😔 Koi mission complete nahi hua!</div>':'')
+    +'</div>';
   document.getElementById('gameOverOv').classList.add('show');
 }
-
 // ===== DRAW =====
 function drawPipes(){
   pipes.forEach(p=>{
@@ -828,7 +851,9 @@ document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();
 function startGame(){
   iAudio();ST='play';
   score=0;frames=0;combo=0;hiCombo=0;gameTime=0;pT=0;pCI=0;GS=3;mI=0;mT=0;
-  pipes=[];fCoins=[];parts=[];activeMission=0;missionQueue=[];mI=0;mT=0;
+  pipes=[];fCoins=[];parts=[];missionNum=0;missionCompleted=0;currentMission=null;missionQueue=[];mI=0;mT=0;
+mProg={pipes:0,coins:0,magic:0,score:0,time:0};
+setTimeout(()=>startMission(1),500);
   mProg={pipes:0,coins:0,magic:0,score:0,time:0};mDone={};
   bird.reset();
   document.getElementById('shud').textContent='0';
