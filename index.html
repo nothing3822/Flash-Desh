@@ -849,7 +849,8 @@ document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();
 
 // ===== GAME FUNCTIONS =====
 function startGame(){
-  iAudio();ST='play';
+  iAudio();ST='idle';
+  setTimeout(()=>{startMission(1);},300);
   score=0;frames=0;combo=0;hiCombo=0;gameTime=0;pT=0;pCI=0;GS=3;mI=0;mT=0;
   pipes=[];fCoins=[];parts=[];missionNum=0;missionCompleted=0;currentMission=null;missionQueue=[];
   mProg={pipes:0,coins:0,magic:0,score:0,time:0};
@@ -862,7 +863,6 @@ function startGame(){
   document.getElementById('missionCompleteOv').classList.remove('show');
   document.querySelectorAll('.mw').forEach(m=>m.style.display='none');
   document.getElementById('gw').classList.add('show');
-  setTimeout(()=>startMission(1),800);
 }
 
 function restartGame(){document.getElementById('gameOverOv').classList.remove('show');startGame();}
