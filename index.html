@@ -653,7 +653,7 @@ function generateMission(num){
 
 function startMission(num){
   missionNum=num;currentMission=generateMission(num);
-  showMissionPopup('🎯','Mission '+num+' Started!',currentMission.tasks.map(t=>'• '+t.txt).join('/n'),
+  showMissionPopup('🎯','Mission '+num+' Started!',currentMission.tasks.map(t=>'• '+t.txt).join('\n'),
   'Lets Go! ▶',
   false,
   null
